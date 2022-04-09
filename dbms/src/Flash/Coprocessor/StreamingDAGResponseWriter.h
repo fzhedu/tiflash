@@ -66,7 +66,6 @@ private:
     TiDB::TiDBCollators collators;
     size_t rows_in_blocks;
     uint16_t partition_num;
-    std::unique_ptr<ChunkCodecStream> chunk_codec_stream;
 };
 
 } // namespace DB

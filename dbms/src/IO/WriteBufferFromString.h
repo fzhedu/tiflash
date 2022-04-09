@@ -33,13 +33,6 @@ namespace detail
 /// For correct order of initialization.
 class StringHolder
 {
-public:
-    StringHolder() = default;
-    StringHolder(size_t init_size)
-    {
-        value.resize(init_size);
-    }
-
 protected:
     std::string value;
 };
@@ -53,11 +46,6 @@ class WriteBufferFromOwnString
 public:
     WriteBufferFromOwnString()
         : WriteBufferFromString(value)
-    {}
-
-    WriteBufferFromOwnString(size_t init_size)
-        : detail::StringHolder(init_size)
-        , WriteBufferFromString(value)
     {}
 
     WriteBufferFromOwnString(WriteBufferFromOwnString && rhs) = delete;
