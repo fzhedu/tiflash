@@ -125,9 +125,11 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::encodeThenWriteBlocks(
             for (const auto & block : input_blocks)
             {
                 chunk_codec_stream->encode(block, 0, block.rows());
-                packet.add_chunks(chunk_codec_stream->getString());
+                auto dag_chunk = response.add_chunks();
+                dag_chunk->set_rows_data(chunk_codec_stream->getString());
                 chunk_codec_stream->clear();
             }
+            serializeToPacket(packet, response);
             writer->write(packet);
         }
         else /// passthrough data to a non-TiFlash node, like sending data to TiSpark
@@ -201,8 +203,7 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::partitionAndEncodeThenWriteBlo
     tipb::SelectResponse & response) const
 {
     std::vector<std::unique_ptr<ChunkCodecStream>> chunk_codec_stream(partition_num);
-    std::vector<mpp::MPPDataPacket> packet(partition_num);
-
+    std::vector<tipb::SelectResponse> responses(partition_num);
     std::vector<size_t> responses_row_count(partition_num);
     for (auto i = 0; i < partition_num; ++i)
     {
@@ -218,12 +219,8 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::partitionAndEncodeThenWriteBlo
         {
             chunk_codec_stream[i] = CHBlockChunkCodec().newCodecStream(dag_context.result_field_types);
         }
-        if constexpr (send_exec_summary_at_last)
-        {
-            /// Sending the response to only one node, default the first one.
-            if (i == 0)
-                serializeToPacket(packet[i], response);
-        }
+        responses[i] = response;
+        responses[i].set_encode_type(dag_context.encode_type);
     }
     if (input_blocks.empty())
     {
@@ -231,7 +228,7 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::partitionAndEncodeThenWriteBlo
         {
             for (auto part_id = 0; part_id < partition_num; ++part_id)
             {
-                writer->write(packet[part_id], part_id);
+                writer->write(responses[part_id], part_id);
             }
         }
         return;
@@ -297,7 +294,8 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::partitionAndEncodeThenWriteBlo
             dest_blocks[part_id].setColumns(std::move(dest_tbl_cols[part_id]));
             responses_row_count[part_id] += dest_blocks[part_id].rows();
             chunk_codec_stream[part_id]->encode(dest_blocks[part_id], 0, dest_blocks[part_id].rows());
-            packet[part_id].add_chunks(chunk_codec_stream[part_id]->getString());
+            auto dag_chunk = responses[part_id].add_chunks();
+            dag_chunk->set_rows_data(chunk_codec_stream[part_id]->getString());
             chunk_codec_stream[part_id]->clear();
         }
     }
@@ -306,12 +304,12 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::partitionAndEncodeThenWriteBlo
     {
         if constexpr (send_exec_summary_at_last)
         {
-            writer->write(packet[part_id], part_id);
+            writer->write(responses[part_id], part_id);
         }
         else
         {
             if (responses_row_count[part_id] > 0)
-                writer->write(packet[part_id], part_id);
+                writer->write(responses[part_id], part_id);
         }
     }
 }
