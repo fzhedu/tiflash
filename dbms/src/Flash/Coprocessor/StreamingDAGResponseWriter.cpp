@@ -104,54 +104,25 @@ void StreamingDAGResponseWriter<StreamWriterPtr>::encodeThenWriteBlocks(
     {
         chunk_codec_stream = std::make_unique<CHBlockChunkCodec>()->newCodecStream(dag_context.result_field_types);
     }
-
     if (dag_context.encode_type == tipb::EncodeType::TypeCHBlock)
     {
-        if (dag_context.isMPPTask()) /// broadcast data among TiFlash nodes in MPP
+        response.set_encode_type(dag_context.encode_type);
+        if (input_blocks.empty())
         {
-            mpp::MPPDataPacket packet;
             if constexpr (send_exec_summary_at_last)
             {
-                serializeToPacket(packet, response);
+                writer->write(response);
             }
-            if (input_blocks.empty())
-            {
-                if constexpr (send_exec_summary_at_last)
-                {
-                    writer->write(packet);
-                }
-                return;
-            }
-            for (const auto & block : input_blocks)
-            {
-                chunk_codec_stream->encode(block, 0, block.rows());
-                auto dag_chunk = response.add_chunks();
-                dag_chunk->set_rows_data(chunk_codec_stream->getString());
-                chunk_codec_stream->clear();
-            }
-            serializeToPacket(packet, response);
-            writer->write(packet);
+            return;
         }
-        else /// passthrough data to a non-TiFlash node, like sending data to TiSpark
+        for (const auto & block : input_blocks)
         {
-            response.set_encode_type(dag_context.encode_type);
-            if (input_blocks.empty())
-            {
-                if constexpr (send_exec_summary_at_last)
-                {
-                    writer->write(response);
-                }
-                return;
-            }
-            for (const auto & block : input_blocks)
-            {
-                chunk_codec_stream->encode(block, 0, block.rows());
-                auto * dag_chunk = response.add_chunks();
-                dag_chunk->set_rows_data(chunk_codec_stream->getString());
-                chunk_codec_stream->clear();
-            }
-            writer->write(response);
+            chunk_codec_stream->encode(block, 0, block.rows());
+            auto * dag_chunk = response.add_chunks();
+            dag_chunk->set_rows_data(chunk_codec_stream->getString());
+            chunk_codec_stream->clear();
         }
+        writer->write(response);
     }
     else /// passthrough data to a TiDB node
     {
